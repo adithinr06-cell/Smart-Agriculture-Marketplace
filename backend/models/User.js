@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
@@ -25,6 +26,24 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ["buyer", "farmer"],
       required: true
+    },
+
+    phone: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+
+    farmAddress: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+
+    farmDescription: {
+      type: String,
+      trim: true,
+      default: ""
     }
   },
   {

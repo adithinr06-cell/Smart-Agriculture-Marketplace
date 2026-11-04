@@ -51,11 +51,36 @@ router.post("/", protect, async (req, res) => {
   }
 });
 
-// VIEW ALL PRODUCTS
+// VIEW PRODUCTS OF LOGGED-IN FARMER
+router.get("/my-products", protect, async (req, res) => {
+  try {
+    if (req.user.role !== "farmer") {
+      return res.status(403).json({
+        message: "Only farmers can view their products"
+      });
+    }
+
+    const products = await Product.find({
+      farmer: req.user.userId
+    });
+
+    res.json(products);
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
+
+// VIEW ALL PRODUCTS WITH PUBLIC FARMER DETAILS
 router.get("/", async (req, res) => {
   try {
     const products = await Product.find()
-      .populate("farmer", "name");
+      .populate(
+        "farmer",
+        "name phone farmAddress farmDescription"
+      );
 
     res.json(products);
   } catch (error) {

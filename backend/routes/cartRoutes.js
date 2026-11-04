@@ -17,11 +17,7 @@ router.post("/add", protect, async (req, res) => {
 
     const { productId, quantity } = req.body;
 
-    if (
-      !productId ||
-      !Number.isInteger(quantity) ||
-      quantity < 1
-    ) {
+    if (!productId || !Number.isInteger(quantity) || quantity < 1) {
       return res.status(400).json({
         message: "Please provide a valid product ID and quantity"
       });
@@ -91,7 +87,7 @@ router.post("/add", protect, async (req, res) => {
   }
 });
 
-/* VIEW BUYER CART */
+// VIEW BUYER CART
 router.get("/", protect, async (req, res) => {
   try {
     if (req.user.role !== "buyer") {
@@ -102,10 +98,7 @@ router.get("/", protect, async (req, res) => {
 
     const cart = await Cart.findOne({
       buyer: req.user.userId
-    }).populate(
-      "items.product",
-      "name category price unit"
-    );
+    }).populate("items.product", "name category price unit");
 
     if (!cart) {
       return res.json({
@@ -126,7 +119,7 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-/* REMOVE PRODUCT FROM CART */
+// REMOVE PRODUCT FROM CART
 router.delete("/remove/:productId", protect, async (req, res) => {
   try {
     if (req.user.role !== "buyer") {
@@ -172,7 +165,8 @@ router.delete("/remove/:productId", protect, async (req, res) => {
     });
   }
 });
-/* UPDATE CART ITEM QUANTITY */
+
+// UPDATE CART ITEM QUANTITY
 router.put("/update/:productId", protect, async (req, res) => {
   try {
     if (req.user.role !== "buyer") {
@@ -239,4 +233,5 @@ router.put("/update/:productId", protect, async (req, res) => {
     });
   }
 });
+
 module.exports = router;

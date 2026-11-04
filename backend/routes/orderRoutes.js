@@ -181,4 +181,129 @@ router.put("/cancel/:orderId", protect, async (req, res) => {
     await session.endSession();
   }
 });
+
+/* VIEW FARMER ORDERS */
+router.get("/farmer-orders", protect, async (req, res) => {
+  try {
+    if (req.user.role !== "farmer") {
+      return res.status(403).json({
+        message: "Only farmers can view incoming orders"
+      });
+    }
+
+    // Find products belonging to the logged-in farmer
+    const farmerProducts = await Product.find({
+      farmer: req.user.userId
+    }).select("_id");
+
+    const productIds = farmerProducts.map(product => product._id);
+
+    // Find orders containing those products
+    const orders = await Order.find({
+      "items.product": { $in: productIds }
+    })
+      .populate("buyer", "name email")
+      .populate("items.product", "name price unit farmer")
+      .sort({ createdAt: -1 });
+
+    // Show only the farmer's own products in each order
+    const farmerOrders = orders.map(order => {
+      const orderObject = order.toObject();
+
+      orderObject.items = orderObject.items.filter(
+        item =>
+          item.product &&
+          item.product.farmer.toString() === req.user.userId
+      );
+
+      return orderObject;
+    });
+
+    res.json({
+      message: "Farmer orders retrieved successfully",
+      count: farmerOrders.length,
+      orders: farmerOrders
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
+
+/* UPDATE ORDER STATUS */
+router.put("/update-status/:orderId", protect, async (req, res) => {
+  try {
+    if (req.user.role !== "farmer") {
+      return res.status(403).json({
+        message: "Only farmers can update order status"
+      });
+    }
+
+    const { status } = req.body;
+
+    const allowedStatuses = [
+      "Confirmed",
+      "Shipped",
+      "Delivered"
+    ];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        message: "Invalid order status"
+      });
+    }
+
+    const order = await Order.findById(req.params.orderId)
+      .populate("items.product", "farmer");
+
+    if (!order) {
+      return res.status(404).json({
+        message: "Order not found"
+      });
+    }
+
+    // Check whether all products belong to this farmer
+    const isOwner = order.items.every(
+      item =>
+        item.product &&
+        item.product.farmer.toString() === req.user.userId
+    );
+
+    if (!isOwner) {
+      return res.status(403).json({
+        message: "You are not authorized to update this order"
+      });
+    }
+
+    // Allow only the next status in the sequence
+    const nextStatus = {
+      Placed: "Confirmed",
+      Confirmed: "Shipped",
+      Shipped: "Delivered"
+    };
+
+    if (nextStatus[order.status] !== status) {
+      return res.status(400).json({
+        message: "Invalid status transition"
+      });
+    }
+
+    order.status = status;
+    await order.save();
+
+    res.json({
+      message: "Order status updated successfully",
+      order
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
 module.exports = router;
