@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const orderSchema = new mongoose.Schema(
@@ -15,15 +16,29 @@ const orderSchema = new mongoose.Schema(
           ref: "Product",
           required: true
         },
+
         quantity: {
           type: Number,
           required: true,
           min: 1
         },
+
         price: {
           type: Number,
           required: true,
           min: 0
+        },
+
+        status: {
+          type: String,
+          enum: [
+            "Placed",
+            "Confirmed",
+            "Shipped",
+            "Delivered",
+            "Cancelled"
+          ],
+          default: "Placed"
         }
       }
     ],
@@ -36,7 +51,13 @@ const orderSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["Placed", "Confirmed", "Shipped", "Delivered", "Cancelled"],
+      enum: [
+        "Placed",
+        "Confirmed",
+        "Shipped",
+        "Delivered",
+        "Cancelled"
+      ],
       default: "Placed"
     }
   },

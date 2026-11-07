@@ -38,6 +38,7 @@ function FarmerDashboard() {
   const [editQuantity, setEditQuantity] = useState("");
   const [editUnit, setEditUnit] = useState("kg");
   const [editMessage, setEditMessage] = useState("");
+  const [deletingProductId, setDeletingProductId] = useState(null);
 
   // Fetch Farmer Profile
   const fetchFarmerProfile = async () => {
@@ -138,9 +139,12 @@ function FarmerDashboard() {
       const data = await response.json();
 
       if (response.ok) {
-        setOrders(data.orders || []);
+        const orderList = data.orders || [];
+
+        setOrders(orderList);
+
         setMessage(
-          data.orders.length === 0
+          orderList.length === 0
             ? "No incoming orders yet."
             : ""
         );
@@ -186,8 +190,8 @@ function FarmerDashboard() {
     fetchMyProducts();
   }, []);
 
-  // Update Order Status
-  const updateOrderStatus = async (orderId, status) => {
+  // Update Individual Farmer Product Status
+  const updateOrderStatus = async (orderId, productId, status) => {
     try {
       const token = localStorage.getItem("token");
 
@@ -199,15 +203,15 @@ function FarmerDashboard() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`
           },
-          body: JSON.stringify({ status })
+          body: JSON.stringify({ status, productId })
         }
       );
 
       const data = await response.json();
 
       if (response.ok) {
-        alert("Order status updated successfully!");
-        fetchFarmerOrders();
+        alert("Product order status updated successfully!");
+        await fetchFarmerOrders();
       } else {
         alert(data.message || "Unable to update order status");
       }
@@ -318,12 +322,69 @@ function FarmerDashboard() {
     }
   };
 
-  const pendingOrders = orders.filter(
-    order => ["Placed", "Confirmed", "Shipped"].includes(order.status)
+  // Delete Product
+  const handleDeleteProduct = async (product) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${product.name}"? This action cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingProductId(product._id);
+      const token = localStorage.getItem("token");
+
+      const response = await fetch(
+        `http://localhost:5000/api/products/${product._id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        if (editingProductId === product._id) {
+          setEditingProductId(null);
+          setEditMessage("");
+        }
+
+        await fetchMyProducts();
+        alert("Product deleted successfully!");
+      } else {
+        alert(data.message || "Unable to delete product");
+      }
+    } catch (error) {
+      alert("Unable to connect to server");
+    } finally {
+      setDeletingProductId(null);
+    }
+  };
+
+  // Count orders using individual product statuses
+  const pendingOrders = orders.filter(order =>
+    order.items.some(item =>
+      ["Placed", "Confirmed", "Shipped"].includes(
+        item.status || order.status || "Placed"
+      )
+    )
   );
 
-  const deliveredOrders = orders.filter(
-    order => order.status === "Delivered"
+  const deliveredOrders = orders.filter(order =>
+    order.items.length > 0 &&
+    order.items.every(item =>
+      ["Delivered", "Cancelled"].includes(
+        item.status || order.status || "Placed"
+      )
+    ) &&
+    order.items.some(item =>
+      (item.status || order.status || "Placed") === "Delivered"
+    )
   );
 
   return (
@@ -543,6 +604,16 @@ function FarmerDashboard() {
                 Edit Product
               </button>
 
+              <button
+                type="button"
+                onClick={() => handleDeleteProduct(product)}
+                disabled={deletingProductId === product._id}
+              >
+                {deletingProductId === product._id
+                  ? "Deleting..."
+                  : "Delete Product"}
+              </button>
+
             </div>
           ))
         )}
@@ -682,61 +753,92 @@ function FarmerDashboard() {
             </p>
 
             <p>
-              Status: <strong>{order.status}</strong>
+              Overall Order Status: <strong>{order.status}</strong>
             </p>
 
-            <h4>Ordered Products</h4>
+            <h4>Your Ordered Products</h4>
 
-            {order.items.map(item => (
-              <div key={item._id}>
+            {order.items.map(item => {
+              const itemStatus = item.status || order.status || "Placed";
 
-                <p>
-                  {item.product?.name || "Product"} -
-                  Quantity: {item.quantity} {item.product?.unit || ""}
-                </p>
+              return (
+                <div
+                  className="farmer-order-item"
+                  key={item._id || item.product?._id}
+                >
 
-                <p>Price: ₹{item.price}</p>
+                  <p>
+                    <strong>
+                      {item.product?.name || "Product"}
+                    </strong>
+                  </p>
 
-                <p>
-                  Subtotal: ₹{item.price * item.quantity}
-                </p>
+                  <p>
+                    Quantity: {item.quantity} {item.product?.unit || ""}
+                  </p>
 
-              </div>
-            ))}
+                  <p>Price: ₹{item.price}</p>
+
+                  <p>
+                    Subtotal: ₹{item.price * item.quantity}
+                  </p>
+
+                  <p>
+                    Product Order Status: <strong>{itemStatus}</strong>
+                  </p>
+
+                  {itemStatus === "Placed" && (
+                    <button
+                      onClick={() =>
+                        updateOrderStatus(order._id, item.product?._id, "Confirmed")
+                      }
+                    >
+                      Confirm Product
+                    </button>
+                  )}
+
+                  {itemStatus === "Confirmed" && (
+                    <button
+                      onClick={() =>
+                        updateOrderStatus(order._id, item.product?._id, "Shipped")
+                      }
+                    >
+                      Mark as Shipped
+                    </button>
+                  )}
+
+                  {itemStatus === "Shipped" && (
+                    <button
+                      onClick={() =>
+                        updateOrderStatus(order._id, item.product?._id, "Delivered")
+                      }
+                    >
+                      Mark as Delivered
+                    </button>
+                  )}
+
+                  {itemStatus === "Delivered" && (
+                    <p>✅ Product Delivered</p>
+                  )}
+
+                  {itemStatus === "Cancelled" && (
+                    <p>❌ Product Cancelled</p>
+                  )}
+
+                  <hr />
+
+                </div>
+              );
+            })}
 
             <h4>
-              Total Amount: ₹
+              Your Products Total: ₹
               {order.items.reduce(
-                (total, item) => total + item.price * item.quantity,
+                (total, item) =>
+                  total + item.price * item.quantity,
                 0
               )}
             </h4>
-
-            {order.status === "Placed" && (
-              <button onClick={() => updateOrderStatus(order._id, "Confirmed")}>
-                Confirm Order
-              </button>
-            )}
-
-            {order.status === "Confirmed" && (
-              <button onClick={() => updateOrderStatus(order._id, "Shipped")}>
-                Mark as Shipped
-              </button>
-            )}
-
-            {order.status === "Shipped" && (
-              <button onClick={() => updateOrderStatus(order._id, "Delivered")}>
-                Mark as Delivered
-              </button>
-            )}
-
-            {order.status === "Delivered" && (
-              <p>✅ Order Delivered</p>
-            )}
-
-            {order.status === "Cancelled" && (
-              <p>❌ Order Cancelled</p>
-            )}
 
           </div>
         ))

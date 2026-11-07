@@ -55,6 +55,44 @@ function getProductVisual(product) {
   };
 }
 
+// GET INDIVIDUAL PRODUCT STATUS
+// Fallback supports orders created before item-level status was introduced.
+function getItemStatus(item, order) {
+  return item?.status || order?.status || "Placed";
+}
+
+// GET OVERALL ORDER STATUS FROM INDIVIDUAL PRODUCT STATUSES
+function getOverallOrderStatus(order) {
+  const items = order?.items || [];
+
+  if (items.length === 0) {
+    return order?.status || "Placed";
+  }
+
+  const statuses = items.map((item) => getItemStatus(item, order));
+
+  if (statuses.every((status) => status === "Cancelled")) {
+    return "Cancelled";
+  }
+
+  const activeStatuses = statuses.filter(
+    (status) => status !== "Cancelled"
+  );
+
+  const rank = {
+    Placed: 1,
+    Confirmed: 2,
+    Shipped: 3,
+    Delivered: 4
+  };
+
+  return activeStatuses.reduce((earliest, status) => {
+    return (rank[status] || 1) < (rank[earliest] || 1)
+      ? status
+      : earliest;
+  }, activeStatuses[0] || "Placed");
+}
+
 // ORDER TRACKING COMPONENT
 function OrderTracker({ status }) {
   const steps = ["Placed", "Confirmed", "Shipped", "Delivered"];
@@ -68,8 +106,8 @@ function OrderTracker({ status }) {
         color: "#991b1b",
         borderRadius: "8px"
       }}>
-        <h4>Order Cancelled</h4>
-        <p>This order has been cancelled.</p>
+        <h4>Product Cancelled</h4>
+        <p>This product has been cancelled.</p>
       </div>
     );
   }
@@ -77,14 +115,12 @@ function OrderTracker({ status }) {
   const currentIndex = steps.indexOf(status);
 
   return (
-    <div style={{ marginTop: "20px", marginBottom: "20px" }}>
-      <h4>Order Tracking</h4>
-
+    <div style={{ marginTop: "15px", marginBottom: "15px" }}>
       <div style={{
         display: "flex",
         justifyContent: "space-between",
         position: "relative",
-        marginTop: "25px",
+        marginTop: "20px",
         gap: "5px"
       }}>
         {steps.map((step, index) => {
@@ -143,7 +179,7 @@ function OrderTracker({ status }) {
       </div>
 
       <p style={{
-        color: "#15803d",
+        color: status === "Delivered" ? "#15803d" : "#374151",
         fontWeight: "bold",
         marginTop: "12px"
       }}>
@@ -663,57 +699,130 @@ function App() {
       {showOrders && (
         <section className="cart-section">
           <h2>My Orders 📦</h2>
+
+          <button
+            type="button"
+            onClick={fetchMyOrders}
+            style={{
+              backgroundColor: "#15803d",
+              color: "white",
+              padding: "10px 18px",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              marginBottom: "15px"
+            }}
+          >
+            🔄 Refresh Status
+          </button>
+
           <p>{ordersMessage}</p>
 
-          {orders.map((order) => (
-            <div className="cart-item" key={order._id}>
-              <h3>Order ID: {order._id}</h3>
+          {orders.map((order) => {
+            const overallStatus = getOverallOrderStatus(order);
 
-              <p>
-                Order Date:{" "}
-                {order.createdAt
-                  ? new Date(order.createdAt).toLocaleDateString("en-IN")
-                  : "Not available"}
-              </p>
+            const itemStatuses = (order.items || []).map((item) =>
+              getItemStatus(item, order)
+            );
 
-              <p>Status: <strong>{order.status}</strong></p>
-              <p>Total Amount: ₹{order.totalAmount}</p>
+            const canCancelOrder =
+              itemStatuses.length > 0 &&
+              itemStatuses.every(
+                (status) =>
+                  status === "Placed" || status === "Confirmed"
+              );
 
-              <OrderTracker status={order.status} />
+            return (
+              <div className="cart-item" key={order._id}>
+                <h3>Order ID: {order._id}</h3>
 
-              {(order.status === "Placed" ||
-                order.status === "Confirmed") && (
-                <button
-                  type="button"
-                  onClick={() => handleCancelOrder(order._id)}
-                  style={{
-                    backgroundColor: "#dc2626",
-                    color: "white",
-                    padding: "10px 18px",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontWeight: "bold",
-                    marginBottom: "15px"
-                  }}
-                >
-                  ❌ Cancel Order
-                </button>
-              )}
+                <p>
+                  Order Date:{" "}
+                  {order.createdAt
+                    ? new Date(order.createdAt).toLocaleDateString("en-IN")
+                    : "Not available"}
+                </p>
 
-              <h4>Ordered Products:</h4>
+                <p>
+                  Overall Order Status:{" "}
+                  <strong>{overallStatus}</strong>
+                </p>
 
-              {order.items?.map((item, index) => (
-                <div key={item._id || index}>
-                  <p>
-                    {item.product?.name || "Product"} -
-                    Quantity: {item.quantity}
-                  </p>
-                  <p>Price: ₹{item.price}</p>
-                </div>
-              ))}
-            </div>
-          ))}
+                <p>Total Amount: ₹{order.totalAmount}</p>
+
+                <h4>Ordered Products and Tracking:</h4>
+
+                {order.items?.map((item, index) => {
+                  const itemStatus = getItemStatus(item, order);
+
+                  return (
+                    <div
+                      key={item._id || index}
+                      style={{
+                        marginTop: "18px",
+                        marginBottom: "20px",
+                        padding: "18px",
+                        border: "1px solid #d1d5db",
+                        borderRadius: "12px",
+                        backgroundColor: "#ffffff"
+                      }}
+                    >
+                      <h3 style={{
+                        color: "#14532d",
+                        marginTop: 0
+                      }}>
+                        {item.product?.name || "Product"}
+                      </h3>
+
+                      <p>
+                        Quantity: {item.quantity}
+                      </p>
+
+                      <p>
+                        Price: ₹{item.price}
+                      </p>
+
+                      <p>
+                        Product Status:{" "}
+                        <strong style={{
+                          color:
+                            itemStatus === "Delivered"
+                              ? "#15803d"
+                              : itemStatus === "Cancelled"
+                                ? "#dc2626"
+                                : "#1d4ed8"
+                        }}>
+                          {itemStatus}
+                        </strong>
+                      </p>
+
+                      <OrderTracker status={itemStatus} />
+                    </div>
+                  );
+                })}
+
+                {canCancelOrder && (
+                  <button
+                    type="button"
+                    onClick={() => handleCancelOrder(order._id)}
+                    style={{
+                      backgroundColor: "#dc2626",
+                      color: "white",
+                      padding: "10px 18px",
+                      border: "none",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                      marginBottom: "15px"
+                    }}
+                  >
+                    ❌ Cancel Order
+                  </button>
+                )}
+              </div>
+            );
+          })}
 
           <button onClick={() => setShowOrders(false)}>Close Orders</button>
         </section>
@@ -1385,3 +1494,4 @@ function App() {
 }
 
 export default App;
+

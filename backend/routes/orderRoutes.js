@@ -1,3 +1,4 @@
+
 const express = require("express");
 const Order = require("../models/Order");
 const Cart = require("../models/Cart");
@@ -5,7 +6,42 @@ const Product = require("../models/Product");
 const protect = require("../middleware/authMiddleware");
 
 const router = express.Router();
-const mongoose = require("mongoose");
+
+// Calculate overall order status from individual product statuses
+const updateOverallStatus = (order) => {
+  const statuses = order.items.map(item => item.status || "Placed");
+
+  if (statuses.every(status => status === "Cancelled")) {
+    order.status = "Cancelled";
+    return;
+  }
+
+  const statusRank = {
+    Placed: 1,
+    Confirmed: 2,
+    Shipped: 3,
+    Delivered: 4,
+    Cancelled: 5
+  };
+
+  const overallStatus = {
+    1: "Placed",
+    2: "Confirmed",
+    3: "Shipped",
+    4: "Delivered"
+  };
+
+  const activeStatuses = statuses.filter(
+    status => status !== "Cancelled"
+  );
+
+  const minimumRank = Math.min(
+    ...activeStatuses.map(status => statusRank[status] || 1)
+  );
+
+  order.status = overallStatus[minimumRank] || "Placed";
+};
+
 // PLACE ORDER
 router.post("/place", protect, async (req, res) => {
   try {
@@ -28,7 +64,6 @@ router.post("/place", protect, async (req, res) => {
     const orderItems = [];
     let totalAmount = 0;
 
-    // Validate products and stock before creating the order
     for (const item of cart.items) {
       const product = await Product.findById(item.product);
 
@@ -53,13 +88,14 @@ router.post("/place", protect, async (req, res) => {
       orderItems.push({
         product: product._id,
         quantity: item.quantity,
-        price: product.price
+        price: product.price,
+        status: "Placed"
       });
 
       totalAmount += product.price * item.quantity;
     }
 
-    // Reduce stock and save each product
+    // Reduce stock
     for (const item of cart.items) {
       const product = await Product.findById(item.product);
       product.quantity -= item.quantity;
@@ -69,10 +105,11 @@ router.post("/place", protect, async (req, res) => {
     const order = await Order.create({
       buyer: req.user.userId,
       items: orderItems,
-      totalAmount
+      totalAmount,
+      status: "Placed"
     });
 
-    // Clear the cart after successful order creation
+    // Clear cart
     cart.items = [];
     await cart.save();
 
@@ -80,6 +117,7 @@ router.post("/place", protect, async (req, res) => {
       message: "Order placed successfully",
       order
     });
+
   } catch (error) {
     res.status(500).json({
       message: "Server error",
@@ -87,7 +125,8 @@ router.post("/place", protect, async (req, res) => {
     });
   }
 });
-/* VIEW MY ORDERS */
+
+// VIEW BUYER ORDERS
 router.get("/my-orders", protect, async (req, res) => {
   try {
     if (req.user.role !== "buyer") {
@@ -107,6 +146,7 @@ router.get("/my-orders", protect, async (req, res) => {
       count: orders.length,
       orders
     });
+
   } catch (error) {
     res.status(500).json({
       message: "Server error",
@@ -114,7 +154,8 @@ router.get("/my-orders", protect, async (req, res) => {
     });
   }
 });
-/* CANCEL ORDER */
+
+// CANCEL ORDER
 router.put("/cancel/:orderId", protect, async (req, res) => {
   const session = await Order.startSession();
 
@@ -140,14 +181,19 @@ router.put("/cancel/:orderId", protect, async (req, res) => {
       });
     }
 
-    if (order.status !== "Placed" && order.status !== "Confirmed") {
+    // Cancellation is allowed only while every item is Placed or Confirmed
+    const canCancel = order.items.every(item =>
+      item.status === "Placed" || item.status === "Confirmed"
+    );
+
+    if (!canCancel) {
       await session.abortTransaction();
       return res.status(400).json({
-        message: "This order can no longer be cancelled"
+        message: "This order can no longer be cancelled because one or more products have been shipped"
       });
     }
 
-    // Restore stock for every product in the order
+    // Restore stock and cancel every item
     for (const item of order.items) {
       const product = await Product.findById(item.product).session(session);
 
@@ -157,6 +203,8 @@ router.put("/cancel/:orderId", protect, async (req, res) => {
 
       product.quantity += item.quantity;
       await product.save({ session });
+
+      item.status = "Cancelled";
     }
 
     order.status = "Cancelled";
@@ -168,6 +216,7 @@ router.put("/cancel/:orderId", protect, async (req, res) => {
       message: "Order cancelled successfully",
       order
     });
+
   } catch (error) {
     if (session.inTransaction()) {
       await session.abortTransaction();
@@ -177,12 +226,13 @@ router.put("/cancel/:orderId", protect, async (req, res) => {
       message: "Server error",
       error: error.message
     });
+
   } finally {
     await session.endSession();
   }
 });
 
-/* VIEW FARMER ORDERS */
+// VIEW FARMER ORDERS
 router.get("/farmer-orders", protect, async (req, res) => {
   try {
     if (req.user.role !== "farmer") {
@@ -191,14 +241,12 @@ router.get("/farmer-orders", protect, async (req, res) => {
       });
     }
 
-    // Find products belonging to the logged-in farmer
     const farmerProducts = await Product.find({
       farmer: req.user.userId
     }).select("_id");
 
     const productIds = farmerProducts.map(product => product._id);
 
-    // Find orders containing those products
     const orders = await Order.find({
       "items.product": { $in: productIds }
     })
@@ -206,13 +254,14 @@ router.get("/farmer-orders", protect, async (req, res) => {
       .populate("items.product", "name price unit farmer")
       .sort({ createdAt: -1 });
 
-    // Show only the farmer's own products in each order
     const farmerOrders = orders.map(order => {
       const orderObject = order.toObject();
 
+      // Show only this farmer's products
       orderObject.items = orderObject.items.filter(
         item =>
           item.product &&
+          item.product.farmer &&
           item.product.farmer.toString() === req.user.userId
       );
 
@@ -233,7 +282,7 @@ router.get("/farmer-orders", protect, async (req, res) => {
   }
 });
 
-/* UPDATE ORDER STATUS */
+// UPDATE STATUS OF ONE SELECTED FARMER PRODUCT
 router.put("/update-status/:orderId", protect, async (req, res) => {
   try {
     if (req.user.role !== "farmer") {
@@ -242,7 +291,7 @@ router.put("/update-status/:orderId", protect, async (req, res) => {
       });
     }
 
-    const { status } = req.body;
+    const { status, productId } = req.body;
 
     const allowedStatuses = [
       "Confirmed",
@@ -250,9 +299,9 @@ router.put("/update-status/:orderId", protect, async (req, res) => {
       "Delivered"
     ];
 
-    if (!allowedStatuses.includes(status)) {
+    if (!allowedStatuses.includes(status) || !productId) {
       return res.status(400).json({
-        message: "Invalid order status"
+        message: "Product ID and valid order status are required"
       });
     }
 
@@ -265,37 +314,53 @@ router.put("/update-status/:orderId", protect, async (req, res) => {
       });
     }
 
-    // Check whether all products belong to this farmer
-    const isOwner = order.items.every(
-      item =>
-        item.product &&
-        item.product.farmer.toString() === req.user.userId
-    );
-
-    if (!isOwner) {
-      return res.status(403).json({
-        message: "You are not authorized to update this order"
-      });
-    }
-
-    // Allow only the next status in the sequence
     const nextStatus = {
       Placed: "Confirmed",
       Confirmed: "Shipped",
       Shipped: "Delivered"
     };
 
-    if (nextStatus[order.status] !== status) {
-      return res.status(400).json({
-        message: "Invalid status transition"
+    // Find only the selected product in this order
+    const selectedItem = order.items.find(item =>
+      item.product &&
+      item.product._id.toString() === productId
+    );
+
+    if (!selectedItem) {
+      return res.status(404).json({
+        message: "Product not found in this order"
       });
     }
 
-    order.status = status;
+    // Verify that the selected product belongs to this farmer
+    if (
+      !selectedItem.product.farmer ||
+      selectedItem.product.farmer.toString() !== req.user.userId
+    ) {
+      return res.status(403).json({
+        message: "You can only update your own products"
+      });
+    }
+
+    const currentStatus = selectedItem.status || "Placed";
+
+    if (nextStatus[currentStatus] !== status) {
+      return res.status(400).json({
+        message: `This product cannot be changed from ${currentStatus} to ${status}`
+      });
+    }
+
+    // Update only the selected product
+    selectedItem.status = status;
+
+    // Recalculate overall order status
+    updateOverallStatus(order);
+
     await order.save();
 
     res.json({
-      message: "Order status updated successfully",
+      message: "Product order status updated successfully",
+      updatedCount: 1,
       order
     });
 
@@ -306,4 +371,5 @@ router.put("/update-status/:orderId", protect, async (req, res) => {
     });
   }
 });
+
 module.exports = router;
