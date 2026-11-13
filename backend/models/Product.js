@@ -43,6 +43,47 @@ const productSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true
+    },
+
+    // Product Reviews
+    reviews: [
+      {
+        buyer: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true
+        },
+
+        buyerName: {
+          type: String,
+          required: true
+        },
+
+        rating: {
+          type: Number,
+          required: true,
+          min: 1,
+          max: 5
+        },
+
+        comment: {
+          type: String,
+          required: true,
+          trim: true
+        }
+      }
+    ],
+
+    // Average Rating
+    averageRating: {
+      type: Number,
+      default: 0
+    },
+
+    // Total Number of Reviews
+    numReviews: {
+      type: Number,
+      default: 0
     }
   },
   {

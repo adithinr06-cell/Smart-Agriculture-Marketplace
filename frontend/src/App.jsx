@@ -194,6 +194,12 @@ function App() {
   const [cartMessage, setCartMessage] = useState({});
   const [selectedProduct, setSelectedProduct] = useState(null);
 
+  // PRODUCT REVIEWS AND RATINGS STATES
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
+
   // SEARCH, CATEGORY AND SORTING STATES
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -504,6 +510,75 @@ function App() {
     }
   };
 
+  // SUBMIT PRODUCT REVIEW
+  const handleSubmitReview = async (productId) => {
+    if (!user) {
+      setReviewMessage("Please login as a buyer to submit a review.");
+      setShowLogin(true);
+      return;
+    }
+
+    if (user.role !== "buyer") {
+      setReviewMessage("Only buyers can submit reviews.");
+      return;
+    }
+
+    if (!reviewComment.trim()) {
+      setReviewMessage("Please enter a comment before submitting your review.");
+      return;
+    }
+
+    try {
+      setReviewLoading(true);
+      setReviewMessage("");
+
+      const response = await fetch(
+        `http://localhost:5000/api/products/${productId}/reviews`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          },
+          body: JSON.stringify({
+            rating: Number(reviewRating),
+            comment: reviewComment.trim()
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const updatedProduct = {
+          ...selectedProduct,
+          ...data.product,
+          farmer: selectedProduct?.farmer
+        };
+
+        setSelectedProduct(updatedProduct);
+        setProducts((previousProducts) =>
+          previousProducts.map((product) =>
+            product._id === productId
+              ? { ...product, ...data.product, farmer: product.farmer }
+              : product
+          )
+        );
+
+        setReviewComment("");
+        setReviewRating(5);
+        setReviewMessage("✓ Review submitted successfully!");
+      } else {
+        setReviewMessage(data.message || "Unable to submit review.");
+      }
+    } catch (error) {
+      console.error("Submit review error:", error);
+      setReviewMessage("Unable to connect to server.");
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
   // LOGOUT
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -518,6 +593,9 @@ function App() {
     setShowOrders(false);
     setOrdersMessage("");
     setSelectedProduct(null);
+    setReviewMessage("");
+    setReviewComment("");
+    setReviewRating(5);
   };
 
   // COMMON ADD TO CART BUTTON STYLE
@@ -1064,6 +1142,166 @@ function App() {
               </p>
             </div>
 
+            {/* PRODUCT RATINGS AND CUSTOMER REVIEWS */}
+            <div style={{
+              marginTop: "25px",
+              padding: "20px",
+              backgroundColor: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: "12px"
+            }}>
+              <h3 style={{ color: "#92400e", marginTop: 0 }}>
+                ⭐ Customer Ratings & Reviews
+              </h3>
+
+              <div style={{ marginBottom: "18px" }}>
+                <strong style={{ fontSize: "24px", color: "#92400e" }}>
+                  {Number(selectedProduct.averageRating || 0).toFixed(1)} / 5
+                </strong>
+                <span style={{ marginLeft: "10px", color: "#d97706" }}>
+                  {"★".repeat(Math.round(selectedProduct.averageRating || 0))}
+                  {"☆".repeat(5 - Math.round(selectedProduct.averageRating || 0))}
+                </span>
+                <p style={{ color: "#6b7280", margin: "5px 0" }}>
+                  Based on {selectedProduct.numReviews || 0} review(s)
+                </p>
+              </div>
+
+              {selectedProduct.reviews?.length > 0 ? (
+                selectedProduct.reviews.map((review) => (
+                  <div
+                    key={review._id}
+                    style={{
+                      padding: "13px",
+                      marginBottom: "10px",
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #f3e8c8",
+                      borderRadius: "9px"
+                    }}
+                  >
+                    <div style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "8px"
+                    }}>
+                      <strong style={{ color: "#374151" }}>
+                        {review.buyerName || "Buyer"}
+                      </strong>
+                      <span style={{ color: "#d97706" }}>
+                        {"★".repeat(review.rating)}
+                        {"☆".repeat(5 - review.rating)}
+                      </span>
+                    </div>
+                    <p style={{ color: "#4b5563", marginBottom: 0 }}>
+                      {review.comment}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p style={{ color: "#6b7280" }}>
+                  No reviews yet. Be the first to review this product!
+                </p>
+              )}
+
+              {user?.role === "buyer" && (
+                <div style={{
+                  marginTop: "20px",
+                  paddingTop: "18px",
+                  borderTop: "1px solid #fde68a"
+                }}>
+                  <h4 style={{ color: "#92400e", marginTop: 0 }}>
+                    Write a Review
+                  </h4>
+
+                  <label
+                    htmlFor="review-rating"
+                    style={{ display: "block", marginBottom: "7px", fontWeight: "bold" }}
+                  >
+                    Your Rating
+                  </label>
+                  <select
+                    id="review-rating"
+                    value={reviewRating}
+                    onChange={(e) => setReviewRating(Number(e.target.value))}
+                    style={{
+                      padding: "10px",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "8px",
+                      marginBottom: "12px",
+                      width: "100%",
+                      maxWidth: "180px"
+                    }}
+                  >
+                    <option value={5}>5 - Excellent</option>
+                    <option value={4}>4 - Very Good</option>
+                    <option value={3}>3 - Good</option>
+                    <option value={2}>2 - Fair</option>
+                    <option value={1}>1 - Poor</option>
+                  </select>
+
+                  <label
+                    htmlFor="review-comment"
+                    style={{ display: "block", marginBottom: "7px", fontWeight: "bold" }}
+                  >
+                    Your Comment
+                  </label>
+                  <textarea
+                    id="review-comment"
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    placeholder="Share your experience with this product..."
+                    rows={3}
+                    maxLength={500}
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "12px",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "8px",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      fontSize: "14px"
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitReview(selectedProduct._id)}
+                    disabled={reviewLoading}
+                    style={{
+                      marginTop: "12px",
+                      padding: "11px 18px",
+                      backgroundColor: reviewLoading ? "#9ca3af" : "#15803d",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "8px",
+                      cursor: reviewLoading ? "not-allowed" : "pointer",
+                      fontWeight: "bold"
+                    }}
+                  >
+                    {reviewLoading ? "Submitting..." : "Submit Review"}
+                  </button>
+
+                  {reviewMessage && (
+                    <p style={{
+                      marginTop: "12px",
+                      color: reviewMessage.startsWith("✓") ? "#166534" : "#b91c1c",
+                      fontWeight: "bold"
+                    }}>
+                      {reviewMessage}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!user && (
+                <p style={{ color: "#6b7280", marginTop: "15px" }}>
+                  Login as a buyer to write a review after the product is delivered.
+                </p>
+              )}
+            </div>
+
             <div style={{
               display: "flex",
               gap: "12px",
@@ -1309,6 +1547,16 @@ function App() {
                       margin: "0 0 12px"
                     }}>
                       {product.description || "Fresh quality product from local farmers."}
+                    </p>
+
+                    <p style={{
+                      color: "#a16207",
+                      fontSize: "13px",
+                      margin: "0 0 8px",
+                      fontWeight: "600"
+                    }}>
+                      ⭐ {Number(product.averageRating || 0).toFixed(1)} / 5
+                      {" "}({product.numReviews || 0} reviews)
                     </p>
 
                     <h2 style={{
